@@ -1,0 +1,148 @@
+---
+title: "Practical Machine Learning Project"
+author: "Jun Wen"
+date: "September 26, 2016"
+output: html_document
+---
+
+## Introduction
+
+In the following study:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+the researchers aim to using the Weight Lifting Exercises dataset to investigate how (well) an human activity was performed by the wearer. 
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience.
+
+In this project we will use machine learing algorithm to predict the manner in which six participants did the exercise.
+The data for this project comes from this original source: http://groupware.les.inf.puc-rio.br/har.
+
+
+## Getting the Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Import these data now
+
+```{r}
+set.seed(100)
+url_training <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_testing <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(url(url_training), na.strings=c("NA", "", "#DIV/0!"))
+testing <- read.csv(url(url_testing), na.strings=c("NA", "", "#DIV/0!"))
+```
+
+Then we partition the training set into training set and cross-validation set.
+```{r}
+library(caret)
+inTraining <- createDataPartition(y=training$classe, p=0.75, list=FALSE)
+train <- training[inTraining, ]
+test <- training[-inTraining, ]
+myTraining <- train[!(names(train) %in% c("class"))]
+```
+## Preprocessing the Data
+We will filter out the numerical values of the dataset.
+
+```{r}
+myTraining <- myTraining[-c(1:7)]
+myTraining <- myTraining[sapply(myTraining,is.numeric)]
+```
+
+Because there is a large anount of missing values, we will firstly fill the missimg values by the median of columns. 
+
+```{r}
+f = function(x){
+   if (sum(is.na(x)) >= length(x)*0.6) {
+     x <- 0
+   }
+   x[is.na(x)] = median(x, na.rm = TRUE) 
+   x
+}
+myTraining <- data.frame(apply(myTraining, 2, f))
+dim(myTraining)
+myTraining <- myTraining[!(apply(myTraining == 0, 2, all))]
+dim(myTraining)
+myTraining <- data.frame(myTraining, classe = train$class)
+myTesting <- test[colnames(myTraining)]
+```
+
+After preprocessing, our dataset is reduced to contain only 52 columns. 
+
+## Using machine learning to evaluate the data
+
+### Support vector machines
+SVMs seek an optimal hyperplane for seperating two classes in multidimensional space. The hyperplane is chosen to maximize the margin between two classes' closest points. SVMs are available in R using the svm() function in the e1071 package. 
+
+```{r, eval=TRUE}
+library(e1071)
+fit.svm <- svm(classe ~., data = myTraining)
+
+svm.pred <- predict(fit.svm, na.omit(myTesting))
+svm.perf <- table(na.omit(myTesting)$classe, svm.pred, 
+                  dnn= c("Actual", "Predicted"))
+confusionMatrix(svm.perf)
+```
+
+The svm() function scales each variable to a mean of 0 and standard deviation of 1 before fitting the model by default. The SVMs is also unable to accommodate missing predictor values when classifying new cases. As you can see, the predictive accurary is good. 
+
+### Decision trees
+Decision trees are popular in data-mining contexts. They involve creating a set of binary splits on the predictor variables in order to create a tree that can be used to classify new observations into one of two groups. In R, decision trees can be grown and pruned using the raprt() and prune() functions in the rpart package.
+
+```{r, eval=TRUE}
+library(rpart)
+dtree <- rpart(classe ~ ., data = myTraining, method = "class", 
+               parms = list(split= "information"))
+dtree$cptable
+plotcp(dtree)
+```
+
+The plotcp() function plotthe cross-validated error agains the complexity parameter. The cross-validated parameter error is based on 10-fold cross validation. From the table, we see this error is high even before pruning. 
+
+### Boosted tree model and parameter tuning
+The accuracy of a predictive model can be improved using boosting algorithms like gradient boosting. The first step is tuning the model. Currently, k-fold cross-validation, leave-one-out cross-validation and bootstrap resampling methods can be used by train.
+
+```{r, eval=TRUE}
+library(gbm)
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 1)
+fit.gbm <- train(classe ~., data = myTraining, method = "gbm", 
+                 trControl = fitControl, verbose = FALSE) 
+fit.gbm
+gbm.pred <- predict(fit.gbm, myTesting)
+gbm.perf <- table(na.omit(myTesting)$classe, gbm.pred, 
+                  dnn= c("Actual", "Predicted"))
+confusionMatrix(gbm.perf)
+```
+
+Compared to the decision trees model, the accuracy of prediction is much improved. 
+
+### Random forests
+A random forest is an ensemble learning approach to supervised learning. The algorithm for a random forest involes sampling cases and variables to create a large number of decision trees. Each case is classified by each decision tree. The most common classification for that case is then used as the outcome. Random forests are grown using the randomForest() function in the randomForest package.
+
+```{r, eval=TRUE}
+library(randomForest)
+fit.forest <- randomForest(classe ~., data = myTraining, 
+                           na.action = na.roughfix, importance = TRUE)
+forest.pred <- predict(fit.forest, myTesting)
+forest.perf <- table(na.omit(myTesting)$classe, forest.pred, 
+                  dnn= c("Actual", "Predicted"))
+confusionMatrix(forest.perf)
+```
+
+Random forests tend to be very accurate compared with other classification methods. 
+Additionally, they can handle large problems, can handle large amounts of missing data in the training set, and can handle cases in which the number of variables is much greater than the number of observations.
+
+### Predicting results on the test data
+As random forests gave the most accuracy in prediction, we will use it to make a prediction on the test data.
+
+```{r}
+forest.pred <- predict(fit.forest, testing)
+forest.pred
+```
