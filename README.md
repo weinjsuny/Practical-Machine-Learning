@@ -1,6 +1,6 @@
 # Practical-Machine-Learning
 
-## Please look at  http://rpubs.com/weinjsuny/Practical-Machine-Learning-Project for the detailed study.
+## Please look at http://rpubs.com/weinjsuny/213476 for the detailed study.
 
 
 In the following study:
